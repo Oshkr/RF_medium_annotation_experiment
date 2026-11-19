@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex, nofollow">
+<title>Head annotation</title>
+<style>
+  :root { --bg: #fcfcfb; --panel: #f3f2ef; --ink: #0b0b0b; --muted: #52514e; --line: #dddcd7; --accent: #2a78d6; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }
+  #app { display: grid; grid-template-rows: auto 1fr; grid-template-columns: 340px 1fr; height: 100vh; }
+  header { grid-column: 1 / 3; display: flex; align-items: center; gap: 14px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: #fff; flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0 8px 0 0; }
+  .group { display: flex; align-items: center; gap: 6px; }
+  button, input { font: inherit; }
+  button { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 5px 10px; cursor: pointer; color: var(--ink); }
+  button:hover { border-color: var(--muted); }
+  button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+  input[type=text] { border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; width: 170px; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); padding: 12px; overflow-y: auto; }
+  aside h2 { font-size: 13px; margin: 12px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  #context { width: 100%; border-radius: 6px; background: #ddd; cursor: crosshair; display: block; }
+  #main { position: relative; overflow: hidden; background: #2b2b2b; }
+  #canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .stat { font-size: 22px; font-weight: 600; }
+  .muted { color: var(--muted); font-size: 12.5px; }
+  kbd { background: #fff; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 12px; }
+  ul { padding-left: 18px; margin: 6px 0; }
+  .page { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 10; }
+  .page .card { max-width: 620px; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 28px 32px; box-shadow: 0 6px 30px rgba(0,0,0,.06); }
+  .page h1 { font-size: 22px; margin: 0 0 10px; }
+  .page ol { padding-left: 20px; } .page li { margin: 5px 0; }
+  .page .big { font-size: 16px; padding: 9px 22px; margin-top: 14px; }
+  .hidden { display: none !important; }
+  .tool { font-size: 17px; font-weight: 600; padding: 9px 20px; }
+  .modal { background: rgba(0,0,0,.35); }
+  #hint { position: absolute; left: 10px; bottom: 10px; color: #eee; background: rgba(0,0,0,.5); padding: 4px 8px; border-radius: 5px; font-size: 12px; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Head annotation</h1>
+    <div class="group">
+      <button id="prev" title="previous image (P)">◀</button>
+      <span id="taskLabel"></span>
+      <button id="next" title="next image (N)">▶</button>
+    </div>
+    <div class="group">
+      <button id="toolClick" class="tool active" title="add a point (C)">✚ Click</button>
+      <button id="toolErase" class="tool" title="remove the nearest point (E)">✖ Erase</button>
+      <button id="toolPan" title="move the image (H); or right-drag / Space+drag">✋ Pan</button>
+      <button id="undo" title="undo (Ctrl+Z)">↶ Undo</button>
+      <button id="region" title="zoom to the red region (R)">◎ Region</button>
+      <button id="fit" title="show the whole photo (F)">⤢ Fit</button>
+    </div>
+    <div class="group" style="margin-left:auto">
+      <span class="muted">annotator: <b id="nameShown"></b></span>
+      <button id="download" class="primary">✔ Finish &amp; submit</button>
+    </div>
+  </header>
+  <aside>
+    <h2>Whole image</h2>
+    <canvas id="context"></canvas>
+    <div class="muted">Red: region to annotate. Cyan: what the main view shows (click here to jump).</div>
+    <h2>This image</h2>
+    <div><span class="stat" id="count">0</span> heads in the red region</div>
+    <div class="muted" id="outside"></div>
+    <h2>Instructions</h2>
+    <ul class="muted">
+      <li>One point on <b>every head</b> in the red region.</li>
+      <li>Each photo opens zoomed out. Zoom: mouse wheel, or <b>◎ Region</b>. Move: right-drag.</li>
+      <li>Next photo: <b>▶</b>.</li>
+    </ul>
+    <div class="muted">Keys: <kbd>C</kbd> click, <kbd>E</kbd> erase, <kbd>H</kbd> pan, <kbd>R</kbd> region, <kbd>F</kbd> whole photo, <kbd>N</kbd>/<kbd>P</kbd> next/previous, <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo.</div>
+  </aside>
+  <div id="main"><canvas id="canvas"></canvas><div id="hint"></div></div>
+</div>
+<div id="welcome" class="page">
+  <div class="card">
+    <h1>Count the heads 👋</h1>
+    <p><b><span id="nTasks"></span> photos.</b> Put <b>one point on every head</b> inside the <b style="background:#e00000;color:#fff;padding:0 3px">red region</b>,
+       also tiny ones. Each photo first shows the whole view; zoom in with the mouse wheel (or <b>◎ Region</b>).</p>
+    <p>When you are done, press <b>Submit</b>: your work is saved automatically.</p>
+    <p>Your name (keep it or change it):<br>
+       <input id="name" type="text" style="width:220px;margin-top:6px"> <button id="dice" title="new random name">🎲</button></p>
+    <button id="start" class="primary big">Start</button>
+  </div>
+</div>
+<div id="finish" class="page modal hidden">
+  <div class="card" style="text-align:center">
+    <h1>That was the last photo 🎉</h1>
+    <p>Submit your annotations.</p>
+    <button id="finishDownload" class="primary big">✔ Submit</button>
+    <p class="muted"><a href="#" id="finishBack">keep annotating</a></p>
+  </div>
+</div>
+<div id="thanks" class="page hidden">
+  <div class="card" style="text-align:center">
+    <h1>Thank you! 🎉</h1>
+    <p id="sending">Saving your annotations …</p>
+    <p id="saved" class="hidden">Your annotations were saved. You can now close this page.</p>
+    <div id="failed" class="hidden">
+      <p>Saving did not work. Please download the file and send it to us:</p>
+      <button id="fallback" class="primary big">⬇ Download</button>
+      <p class="muted" id="fileName"></p>
+    </div>
+    <p class="muted"><a href="#" id="back">back to the photos</a></p>
+  </div>
+</div>
+<script src="config.js"></script>
+<script src="tasks.js"></script>
+<script>
+"use strict";
+const KEY = "rf_head_annotation_web_4ter_v1";   // points in raw px of the annotated photo, seconds per task
+const ADJ = ["brave","calm","clever","eager","gentle","happy","jolly","kind","lucky","merry","nimble","proud","quick","quiet","sunny","swift","witty","bold","bright","cosy"];
+const ANIMAL = ["otter","falcon","badger","lynx","heron","fox","owl","seal","hare","wolf","panda","koala","robin","bison","gecko","moose","raven","tiger","whale","yak"];
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const randomName = () => `${pick(ADJ)}-${pick(ANIMAL)}-${10 + Math.floor(Math.random() * 90)}`;
+
+// ---- state, saved in the browser (localStorage)
+let store = JSON.parse(localStorage.getItem(KEY) || "null") || { annotator: randomName(), points: {} };
+const save = () => localStorage.setItem(KEY, JSON.stringify(store));
+let idx = 0, tool = "click", view = { s: 1, tx: 0, ty: 0 }, undos = {}, cache = {};
+store.seconds = store.seconds || {};
+// ---- order: random per annotator, alternating tele / wide (random start), kept in the browser so a reload keeps it
+function shuffle(a) {
+  a = a.slice(); const r = new Uint32Array(a.length); crypto.getRandomValues(r);
+  for (let i = a.length - 1; i > 0; i--) { const j = r[i] % (i + 1); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+function makeOrder(all) {
+  const tele = shuffle(all.filter(t => t.view === "tele")), wide = shuffle(all.filter(t => t.view !== "tele"));
+  const [a, b] = crypto.getRandomValues(new Uint8Array(1))[0] & 1 ? [tele, wide] : [wide, tele], out = [];
+  for (let i = 0; i < Math.max(a.length, b.length); i++) { if (i < a.length) out.push(a[i]); if (i < b.length) out.push(b[i]); }
+  return out;
+}
+const ALL = window.TASKS || [], byId = Object.fromEntries(ALL.map(t => [`${t.pair}:${t.view}`, t]));
+if (!store.order || store.order.length !== ALL.length || !store.order.every(k => byId[k]))
+  store.order = makeOrder(ALL).map(t => `${t.pair}:${t.view}`);
+const TASKS = store.order.map(k => byId[k]);
+let tStart = null;                                  // time spent per task (only while it is shown)
+const $ = id => document.getElementById(id);
+const canvas = $("canvas"), ctx = canvas.getContext("2d"), cctx = $("context").getContext("2d");
+const task = () => TASKS[idx];
+const tid = t => `${t.pair}:${t.view}`;                                            // task id
+const pts = () => (store.points[tid(task())] = store.points[tid(task())] || []);   // in raw px of the photo
+const R = 4;                                                                          // point radius (screen px)
+
+function inside(p, poly) {
+  let c = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > p[1]) !== (yj > p[1]) && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) c = !c;
+  }
+  return c;
+}
+
+function load(t) {
+  const k = tid(t);
+  if (!cache[k]) {
+    cache[k] = { photo: new Image(), context: new Image() };
+    cache[k].photo.onload = cache[k].context.onload = () => { if (task() === t) draw(); };
+    cache[k].photo.src = t.photo;
+    cache[k].context.src = t.context;
+  }
+  return cache[k];
+}
+
+function resize() {
+  const r = canvas.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  canvas.width = r.width * d; canvas.height = r.height * d;
+  const cw = $("context").getBoundingClientRect().width, t = task();
+  $("context").width = cw * d;
+  $("context").height = cw * (t ? t.size[1] / t.size[0] : 0.66) * d;
+}
+
+function show(x0, y0, x1, y1) {                         // fit the box (raw px) into the main view
+  const r = canvas.getBoundingClientRect(), s = Math.min(r.width / (x1 - x0), r.height / (y1 - y0)) * 0.96;
+  view = { s, tx: (r.width - (x0 + x1) * s) / 2, ty: (r.height - (y0 + y1) * s) / 2 };
+}
+const fit = () => { const [ox, oy] = task().offset, [w, h] = task().window_size; show(ox, oy, ox + w, oy + h); };
+function region() {
+  const xs = task().region.map(p => p[0]), ys = task().region.map(p => p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), m = 0.08 * Math.max(x1 - x0, y1 - y0);
+  show(x0 - m, y0 - m, x1 + m, y1 + m);
+}
+
+const toCrop = (sx, sy) => [(sx - view.tx) / view.s, (sy - view.ty) / view.s];
+
+function draw() {
+  const t = task(); if (!t) return;
+  const im = load(t), d = window.devicePixelRatio || 1;
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingEnabled = view.s < 2;                      // show real pixels when zoomed in
+  if (im.photo.complete && im.photo.naturalWidth)              // the window of the photo, at its place (raw px)
+    ctx.drawImage(im.photo, view.tx + t.offset[0] * view.s, view.ty + t.offset[1] * view.s, t.window_size[0] * view.s, t.window_size[1] * view.s);
+  const q = t.region;
+  ctx.beginPath(); q.forEach(([x, y], i) => ctx[i ? "lineTo" : "moveTo"](x * view.s + view.tx, y * view.s + view.ty));
+  ctx.closePath(); ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.lineWidth = 4; ctx.stroke();
+  ctx.strokeStyle = "#ff1a1a"; ctx.lineWidth = 2; ctx.stroke();
+  let n = 0;
+  for (const p of pts()) {
+    const ok = inside(p, q); n += ok;
+    ctx.beginPath(); ctx.arc(p[0] * view.s + view.tx, p[1] * view.s + view.ty, R, 0, 2 * Math.PI);
+    ctx.fillStyle = ok ? "#3ef03e" : "#b0b0b0"; ctx.fill();
+    ctx.lineWidth = 1; ctx.strokeStyle = "#000"; ctx.stroke();
+  }
+  $("count").textContent = n;
+  const out = pts().length - n;
+  $("outside").textContent = out ? `${out} point${out > 1 ? "s" : ""} outside the region (not counted)` : "";
+  $("taskLabel").textContent = `image ${idx + 1} / ${TASKS.length}`;
+  $("hint").textContent = `zoom ${view.s.toFixed(2)}×  |  tool: ${tool}`;
+  drawContext();
+}
+
+function drawContext() {
+  const t = task(), im = load(t), c = $("context"), k = c.width / t.size[0];
+  cctx.setTransform(1, 0, 0, 1, 0, 0); cctx.clearRect(0, 0, c.width, c.height);
+  if (im.context.complete && im.context.naturalWidth) cctx.drawImage(im.context, 0, 0, c.width, c.height);
+  cctx.beginPath(); t.region.forEach(([x, y], i) => cctx[i ? "lineTo" : "moveTo"](x * k, y * k)); cctx.closePath();
+  cctx.strokeStyle = "rgba(0,0,0,.6)"; cctx.lineWidth = 4; cctx.stroke();
+  cctx.strokeStyle = "#ff1a1a"; cctx.lineWidth = 2; cctx.stroke();
+  const r = canvas.getBoundingClientRect(), [a, b] = toCrop(0, 0), [e, f] = toCrop(r.width, r.height);
+  cctx.strokeStyle = "#00e5ff"; cctx.lineWidth = 1.5;
+  cctx.strokeRect(a * k, b * k, (e - a) * k, (f - b) * k);
+}
+
+function nearest(sx, sy, maxPx) {
+  let best = -1, bd = maxPx * maxPx;
+  pts().forEach((p, i) => { const dx = p[0] * view.s + view.tx - sx, dy = p[1] * view.s + view.ty - sy, d2 = dx * dx + dy * dy; if (d2 < bd) { bd = d2; best = i; } });
+  return best;
+}
+
+const hist = () => (undos[tid(task())] = undos[tid(task())] || []);
+function act(sx, sy) {
+  if (tool === "click") {
+    const [x, y] = toCrop(sx, sy), t = task();
+    if (x < t.offset[0] || y < t.offset[1] || x > t.offset[0] + t.window_size[0] || y > t.offset[1] + t.window_size[1]) return;
+    pts().push([x, y]); hist().push({ type: "add" });
+  } else if (tool === "erase") {
+    const i = nearest(sx, sy, 12);
+    if (i < 0) return;
+    hist().push({ type: "del", i, p: pts()[i] }); pts().splice(i, 1);
+  }
+  save(); draw();
+}
+function undo() {
+  const h = hist().pop(); if (!h) return;
+  if (h.type === "add") pts().pop(); else pts().splice(h.i, 0, h.p);
+  save(); draw();
+}
+
+// ---- mouse: left = tool, right / middle / Space+left / pan tool = move, wheel = zoom at the cursor
+let drag = null, space = false;
+canvas.addEventListener("contextmenu", e => e.preventDefault());
+canvas.addEventListener("mousedown", e => {
+  const pan = e.button !== 0 || space || tool === "pan";
+  drag = { x: e.offsetX, y: e.offsetY, tx: view.tx, ty: view.ty, pan, moved: false };
+});
+window.addEventListener("mousemove", e => {
+  if (!drag) return;
+  const r = canvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  if (Math.abs(x - drag.x) + Math.abs(y - drag.y) > 4) drag.moved = true;
+  if (drag.pan && drag.moved) { view.tx = drag.tx + x - drag.x; view.ty = drag.ty + y - drag.y; draw(); }
+});
+window.addEventListener("mouseup", e => {
+  if (drag && !drag.pan && !drag.moved && e.button === 0) act(drag.x, drag.y);
+  drag = null;
+});
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  const f = Math.exp(-e.deltaY * 0.0015), s = Math.min(40, Math.max(0.03, view.s * f)), k = s / view.s;
+  view.tx = e.offsetX - (e.offsetX - view.tx) * k; view.ty = e.offsetY - (e.offsetY - view.ty) * k; view.s = s; draw();
+}, { passive: false });
+$("context").addEventListener("click", e => {
+  const t = task(), k = $("context").getBoundingClientRect().width / t.size[0];
+  const x = e.offsetX / k, y = e.offsetY / k, r = canvas.getBoundingClientRect();
+  view.tx = r.width / 2 - x * view.s; view.ty = r.height / 2 - y * view.s; draw();
+});
+
+// ---- controls
+function setTool(t) { tool = t; ["Click", "Erase", "Pan"].forEach(n => $("tool" + n).classList.toggle("active", n.toLowerCase() === t)); draw(); }
+function tick() {                                   // add the time since the last tick to the shown task
+  const now = Date.now();
+  if (tStart !== null && !onPage() && document.visibilityState === "visible") {
+    const k = tid(task()); store.seconds[k] = (store.seconds[k] || 0) + (now - tStart) / 1000; save();
+  }
+  tStart = now;
+}
+setInterval(tick, 10000);
+document.addEventListener("visibilitychange", tick);
+function go(i) { tick(); idx = (i + TASKS.length) % TASKS.length; resize(); fit(); draw(); }   // open zoomed out (whole view); R / ◎ Region zooms to the region
+$("toolClick").onclick = () => setTool("click"); $("toolErase").onclick = () => setTool("erase"); $("toolPan").onclick = () => setTool("pan");
+$("undo").onclick = undo; $("fit").onclick = () => { fit(); draw(); }; $("region").onclick = () => { region(); draw(); };
+const next = () => (idx === TASKS.length - 1 ? $("finish").classList.remove("hidden") : go(idx + 1));   // last photo: ask to download
+$("prev").onclick = () => go(idx - 1); $("next").onclick = next;
+$("finishDownload").onclick = () => { $("finish").classList.add("hidden"); $("download").click(); };
+$("finishBack").onclick = e => { e.preventDefault(); $("finish").classList.add("hidden"); };
+const setName = n => { store.annotator = n; $("name").value = n; $("nameShown").textContent = n; save(); };
+setName(store.annotator);
+$("name").onchange = () => setName($("name").value.trim() || randomName());
+$("dice").onclick = () => setName(randomName());
+$("nTasks").textContent = TASKS.length;
+const onPage = () => ["welcome", "thanks", "finish"].some(id => !$(id).classList.contains("hidden"));
+$("start").onclick = () => { setName($("name").value.trim() || randomName()); $("welcome").classList.add("hidden"); go(idx); };
+$("back").onclick = e => { e.preventDefault(); $("thanks").classList.add("hidden"); go(idx); };
+function payload() {
+  const points = [], tasks = [];
+  for (const [i, t] of TASKS.entries()) {
+    const p = store.points[tid(t)] || [];
+    p.forEach(([x, y]) => points.push({ pair: t.pair, view: t.view, image: t.image, x: +x.toFixed(1), y: +y.toFixed(1) }));
+    tasks.push({ pair: t.pair, view: t.view, dataset: t.dataset, image: t.image, n_points: p.length,
+                 n_in_region: p.filter(q => inside(q, t.region)).length, seconds: Math.round(store.seconds[tid(t)] || 0),
+                 position: i + 1 });
+  }
+  store.submission = store.submission || Math.random().toString(36).slice(2, 10);
+  return { submission: store.submission, annotator: store.annotator, submitted: new Date().toISOString(),
+           user_agent: navigator.userAgent, tasks, points };
+}
+function downloadCSV() {                             // fallback when saving does not work
+  const rows = ["annotator,pair,view,image,x,y"];
+  for (const t of TASKS) for (const [x, y] of (store.points[tid(t)] || []))
+    rows.push([store.annotator, t.pair, t.view, t.image, x.toFixed(1), y.toFixed(1)].join(","));
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([rows.join("\n") + "\n"], { type: "text/csv" }));
+  a.download = `annotations_${store.annotator}_${stamp}.csv`; a.click();
+  $("fileName").textContent = a.download;
+}
+async function submit() {
+  tick();
+  const url = window.SUBMIT_URL || "", body = JSON.stringify(payload());
+  ["saved", "failed"].forEach(id => $(id).classList.add("hidden")); $("sending").classList.remove("hidden");
+  $("thanks").classList.remove("hidden");
+  let ok = false;
+  try {
+    if (url.includes("script.google.com")) {          // Google Apps Script: no CORS answer, the request still arrives
+      await fetch(url, { method: "POST", mode: "no-cors", headers: { "Content-Type": "text/plain;charset=utf-8" }, body });
+      ok = true;
+    } else if (url) {                                 // server.py (or any endpoint answering with CORS headers)
+      ok = (await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body })).ok;
+    }
+  } catch (e) { ok = false; }
+  $("sending").classList.add("hidden");
+  $(ok ? "saved" : "failed").classList.remove("hidden");
+  if (ok) { store.submitted = new Date().toISOString(); save(); }
+}
+$("download").onclick = submit;
+$("fallback").onclick = downloadCSV;
+window.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" || onPage()) return;
+  if (e.code === "Space") { space = true; e.preventDefault(); }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { undo(); e.preventDefault(); return; }
+  const k = e.key.toLowerCase();
+  if (k === "c") setTool("click"); else if (k === "e") setTool("erase"); else if (k === "h") setTool("pan");
+  else if (k === "f") { fit(); draw(); } else if (k === "r") { region(); draw(); }
+  else if (k === "n") next(); else if (k === "p") go(idx - 1);
+});
+window.addEventListener("keyup", e => { if (e.code === "Space") space = false; });
+window.addEventListener("resize", () => { resize(); draw(); });
+save();
+if (!TASKS.length) document.body.innerHTML = "<p style='padding:20px'>No tasks: run make_tool.py.</p>";
+</script>
+</body>
+</html>
